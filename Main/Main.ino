@@ -1,19 +1,19 @@
 //================================================= 라이브러리
 
-#include <Arduino.h>
-#include <stdlib.h>
-#include <string.h>
-#include <WiFi.h>
-#include <WiFiClientSecure.h>
-#include <WebSocketsClient.h>
-#include <ArduinoJson.h>
-#include <Preferences.h>
-#include <nvs_flash.h>
-#include "EmonLib.h"
-#include <ESPAsyncWebSrv.h>
-#include <AsyncTCP.h>
-#include <ESPmDNS.h>
-#include <Update.h>
+#include <Arduino.h> //아두이노 표준 타입 라이브러리
+#include <stdlib.h> //메모리 관리, 문자열 변환 라이브러리
+#include <string.h> //문자열 관련 라이브러리
+#include <WiFi.h> //WiFi를 사용하기 위한 라이브러리
+#include <WiFiClientSecure.h> //WiFi를 사용하기 위한 라이브러리
+#include <WebSocketsClient.h> //webSocket을 사용하기 위한 라이브러리
+#include <ArduinoJson.h> //JSON 라이브러리
+#include <Preferences.h> //Preferences 클래스 사용하기 위한 라이브러리
+#include <nvs_flash.h> //모든 환경 변수를 삭제하기 위한 라이브러리
+#include "EmonLib.h" //전력 모니터링 라이브러리
+#include <ESPAsyncWebSrv.h> //비동기 HTTP & WebSocket 서버 라이브러리
+#include <AsyncTCP.h> //비동기 TCP 라이브러리
+#include <ESPmDNS.h> //DNS 응답, HTTP 라이브러리
+#include <Update.h> //OTA 펌웨어 업데이트 라이브러리
 //------------------------------------------------- html
 #include "manager_html.h"
 #include "ok_html.h"
@@ -31,7 +31,7 @@
 //================================================= define
 
 #define ARDUINOJSON_ENABLE_ARDUINO_STRING 1
-//------------------------------------------------- GPIO
+//------------------------------------------------- GPIO pin
 #define PIN_STATUS 17
 #define PIN_CH1_LED 18
 #define PIN_CH2_LED 19
@@ -44,16 +44,16 @@
 #define PIN_FLOW2 26
 #define PIN_DRAIN1 23
 #define PIN_DRAIN2 25
-//------------------------------------------------- 
+//------------------------------------------------- network
 #define PING_LATE_MILLIS 21500
 #define sensPeriod 500
 //------------------------------------------------- Set
-EnergyMonitor ct1;
-EnergyMonitor ct2;
-Preferences preferences;
-WebSocketsClient webSocket;
-StaticJsonDocument<200> doc;
-
+EnergyMonitor ct1; //전력 모니터링 클래스 생성
+EnergyMonitor ct2; //전력 모니터링 클래스 생성
+Preferences preferences; //메모리 객체 생성
+WebSocketsClient webSocket; //웹 소켓 클라이언트 객체 생성
+StaticJsonDocument<200> doc; //JSON 문서 객체 생성
+//------------------------------------------------- 비동기 웹 서버 객체 생성
 AsyncWebServer server(80);
 WiFiClient client;
 
@@ -76,9 +76,8 @@ int m1 = 0, m2 = 0;
 unsigned int timeSendFlag1 = 0;
 unsigned int timeSendFlag2 = 0;
 
-bool mode_debug = false;
-
-bool led_status = 0;
+bool mode_debug = false; //디버그 모드 flag
+bool led_status = 0; //LED 상태
 //------------------------------------------------- 작동 시작 조건
 float CH1_Curr_W;
 float CH2_Curr_W;
@@ -91,7 +90,7 @@ unsigned int CH1_EndDelay_W;
 unsigned int CH2_EndDelay_W;
 unsigned int CH1_EndDelay_D;
 unsigned int CH2_EndDelay_D;
-//------------------------------------------------- CH1, CH2
+//------------------------------------------------- CH1, CH2 상태 & 카운터
 bool CH1_Mode = false;
 bool CH2_Mode = false;
 bool CH1_CurrStatus = 1;
@@ -112,7 +111,7 @@ String CH1_DeviceNo;
 String CH2_DeviceNo;
 String RoomNo = "0";
 
-bool wifi_fail = 1;
+bool wifi_fail = 1; //WiFi 연결 실패 flag
 //------------------------------------------------- 전류
 float Amps_TRMS1;
 float Amps_TRMS2;
@@ -151,13 +150,13 @@ int se_cnt2 = 0;
 
 //================================================= 함수
 
-//------------------------------------------------- WiFi 연결
+//------------------------------------------------- WiFi 연결 성공 시 이벤트 핸들러
 void WiFiStationConnected(WiFiEvent_t event, WiFiEventInfo_t info)
 {
   Serial.println("AP Connected");
 }
 
-//------------------------------------------------- IP 주소 받아오기
+//------------------------------------------------- IP 주소 할당 시 이벤트 핸들러
 void WiFiGotIP(WiFiEvent_t event, WiFiEventInfo_t info)
 {
   Serial.print("WiFi connected ");
@@ -166,20 +165,21 @@ void WiFiGotIP(WiFiEvent_t event, WiFiEventInfo_t info)
   server_retry_millis = curr_millis;
   String ip = WiFi.localIP().toString();
   // 코드 진행 순서 변경 금지
-  webSocket.beginSSL(Server_domain, Server_port, Server_url);
+  webSocket.beginSSL(Server_domain, Server_port, Server_url); //웹 소켓 서버 설정 및 연결 시작
+  // 추가 헤더 설정
   char HeaderData[35];
   sprintf(HeaderData, "HWID: %s\r\nCH1: %s\r\nCH2: %s\r\nROOM: %s", serial_no.c_str(), CH1_DeviceNo.c_str(), CH2_DeviceNo.c_str(), RoomNo.c_str());
   webSocket.setExtraHeaders(HeaderData);
   webSocket.setAuthorization(auth_id.c_str(), auth_passwd.c_str());
   //webSocket.enableHeartbeat();
-  webSocket.onEvent(webSocketEvent);
-  MDNS.begin(Device_Name);
+  webSocket.onEvent(webSocketEvent); //웹 소켓 이벤트 핸들러 등록
+  MDNS.begin(Device_Name); //mDNS로 로컬 네트워크에서 디바이스를 이름으로 접근 가능하게 설정
   // 코드 진행 순서 변경 금지
   Serial.printf("Host: http://%s.local/\n", Device_Name);
-  setupAsyncServer();
+  setupAsyncServer(); //비동기 웹 서버 설정
 }
 
-//------------------------------------------------- WiFi 연결 종료
+//------------------------------------------------- WiFi 연결 종료 시 이벤트 핸들러
 void WiFiStationDisconnected(WiFiEvent_t event, WiFiEventInfo_t info)
 {
   WiFi.disconnect(true);
@@ -189,26 +189,26 @@ void WiFiStationDisconnected(WiFiEvent_t event, WiFiEventInfo_t info)
   WiFi.begin(ap_ssid, ap_passwd);
 }
 
-//------------------------------------------------- WiFi 상태
+//------------------------------------------------- WiFi 상태 메시지 반환 함수
 const char *WiFiStatusCode(wl_status_t status)
 {
   switch (status)
   {
-    case WL_NO_SHIELD:
+    case WL_NO_SHIELD: //WiFi 실드가 없을 시
       return "WL_NO_SHIELD";
-    case WL_IDLE_STATUS:
+    case WL_IDLE_STATUS: //WiFi.begin()이 호출될 시
       return "WL_IDLE_STATUS";
-    case WL_NO_SSID_AVAIL:
+    case WL_NO_SSID_AVAIL: //사용 가능한 SSID가 없을 시
       return "WL_NO_SSID_AVAIL";
-    case WL_SCAN_COMPLETED:
+    case WL_SCAN_COMPLETED: //스캔 네트워크가 완료 시
       return "WL_SCAN_COMPLETED";
-    case WL_CONNECTED:
+    case WL_CONNECTED: //WiFi 네트워크에 연결 시
       return "WL_CONNECTED";
-    case WL_CONNECT_FAILED:
+    case WL_CONNECT_FAILED: //모든 시도에서 연결이 실패할 시
       return "WL_CONNECT_FAILED";
-    case WL_CONNECTION_LOST:
+    case WL_CONNECTION_LOST: //연결이 끊어졌을 시
       return "WL_CONNECTION_LOST";
-    case WL_DISCONNECTED:
+    case WL_DISCONNECTED: //네트워크 연결이 끊어졌을 시
       return "WL_DISCONNECTED";
   }
 }
@@ -217,10 +217,11 @@ const char *WiFiStatusCode(wl_status_t status)
 //------------------------------------------------- SETUP
 void setup()
 {
-  preferences.begin("config", false);
-  Serial.begin(115200);
+  preferences.begin("config", false); //비휘발성 메모리 초기화
+  Serial.begin(115200); //시리얼 통신 초기화 (baudrate : 115200)
   Serial.print("FW_VER : ");
   Serial.println(build_date);
+  //pinMode 설정
   pinMode(PIN_STATUS, OUTPUT);         // STATUS
   pinMode(PIN_CH1_LED, OUTPUT);        // CH1
   pinMode(PIN_CH2_LED, OUTPUT);        // CH2
@@ -233,12 +234,13 @@ void setup()
   pinMode(PIN_FLOW2, INPUT);           // FLOW2
   pinMode(PIN_DRAIN1, INPUT);          // DRAIN1
   pinMode(PIN_DRAIN2, INPUT);          // DRAIN2
+  //전류 센서 초기화
   ct1.current(PIN_CT1, 30.7);
   ct2.current(PIN_CT2, 30.7);
-  attachInterrupt(digitalPinToInterrupt(PIN_FLOW1), flow1, FALLING);
-  attachInterrupt(digitalPinToInterrupt(PIN_FLOW2), flow2, FALLING);
+  attachInterrupt(digitalPinToInterrupt(PIN_FLOW1), flow1, FALLING); //유량 측정 인터럽트
+  attachInterrupt(digitalPinToInterrupt(PIN_FLOW2), flow2, FALLING); //유량 측정 인터럽트
   SetDefaultVal();
-  mode_debug = digitalRead(PIN_DEBUG);
+  mode_debug = digitalRead(PIN_DEBUG); //디버그 모드 확인
   CH1_Mode = digitalRead(PIN_CH1_MODE);
   CH2_Mode = digitalRead(PIN_CH2_MODE);
   if (mode_debug == 0)
@@ -249,7 +251,7 @@ void setup()
   Serial.println(CH1_Mode);
   Serial.print("CH2_Mode : ");
   Serial.println(CH2_Mode);
-  WiFi.disconnect(true);
+  WiFi.disconnect(true); //WiFi 연결 초기화
   for (int i = 0; i < 30; i++) // 센서 안정화
   {
     ct1.calcIrms(1480);
@@ -272,7 +274,7 @@ void setup()
     }
     else
     {
-      WiFi.begin(ap_ssid, ap_passwd);
+      WiFi.begin(ap_ssid, ap_passwd); //WiFi 연결 시도
     }
 
     WiFi.onEvent(WiFiStationConnected, WiFiEvent_t::ARDUINO_EVENT_WIFI_STA_CONNECTED);
@@ -281,7 +283,7 @@ void setup()
 
     int wifi_timeout = 0;
 
-    while (WiFi.status() != WL_CONNECTED)
+    while (WiFi.status() != WL_CONNECTED) //WiFi 네트워크에 연결되지 않았을 시
     {
       Serial.print('.');
       digitalWrite(PIN_STATUS, LOW);
@@ -289,7 +291,7 @@ void setup()
       digitalWrite(PIN_STATUS, HIGH);
       delay(100);
       wifi_timeout++;
-      if (wifi_timeout > 25)
+      if (wifi_timeout > 25) //WiFi 연결 시도 TIME OUT 상태
       {
         Serial.println("Skip WiFi Connection Due to Timeout");
         break;
@@ -300,7 +302,7 @@ void setup()
 //------------------------------------------------- LOOP
 void loop()
 { 
-  curr_millis = millis();
+  curr_millis = millis(); //현재 시간 업데이트
   if(ping_flag == true && webSocket.isConnected() == true && curr_millis - last_ping_millis >= PING_LATE_MILLIS){
     ping_flag = false;
     webSocket.disconnect();
@@ -311,22 +313,24 @@ void loop()
     ESP.restart();
   }
 
-  if (WiFi.status() == WL_CONNECTED)
+  if (WiFi.status() == WL_CONNECTED) //WiFi 네트워크 연결이 되었을 시
   {
-    webSocket.loop();
+    webSocket.loop(); //웹소켓 통신 처리
     digitalWrite(PIN_STATUS, HIGH);
     wifi_fail = 0;
   }
-  else
+  else //WiFi 네트워크 연결이 안되었을 시
   {
     wifi_fail = 1;
     if (curr_millis - led_millis_prev >= 100)
     {
       led_millis_prev = curr_millis;
-      digitalWrite(PIN_STATUS, !digitalRead(PIN_STATUS));
+      digitalWrite(PIN_STATUS, !digitalRead(PIN_STATUS)); //LED 깜빡임으로 연결 상태 표시
     }
   }
 
+  //디버그 모드에 따라 다르게 동작
+  //------------------------------------------------- 실행 모드
   if (mode_debug)
   {
     Amps_TRMS1 = ct1.calcIrms(1480);
@@ -367,10 +371,11 @@ void loop()
       Dryer_Status_Judgment(Amps_TRMS2, CH2_Cnt, m2, previousMillis_end2, 2);
     }
   }
-  //=======================================================================디버그 모드
+  //------------------------------------------------- 디버그 모드
   else
   {
     curr_millis = millis();
+    //------------------------------------------------- 상태 표시 LED
     if (curr_millis - led_millis_prev >= 100)
     {
       led_millis_prev = curr_millis;
@@ -387,6 +392,7 @@ void loop()
         digitalWrite(PIN_CH2_LED, HIGH);
       }
     }
+    //------------------------------------------------- AT 명령어 입력
     if (Serial.available())
     {
       int dex, dex1, dexc, end;
@@ -409,58 +415,58 @@ void loop()
       {
         Serial.println("AT+OK UPDATE");
       }
-      else if (!(AT_Command.compareTo("CH1_SETVAR")))
+      else if (!(AT_Command.compareTo("CH1_SETVAR"))) //CH1 데이터 설정
       {
         Serial.println("AT+OK CH1_SETVAR");
         CH1_SETVAR(SerialData, dex1, dexc, end);
       }
-      else if (!(AT_Command.compareTo("CH2_SETVAR")))
+      else if (!(AT_Command.compareTo("CH2_SETVAR"))) //CH2 데이터 설정
       {
         Serial.println("AT+OK CH2_SETVAR");
         CH2_SETVAR(SerialData, dex1, dexc, end);
       }
-      else if (!(AT_Command.compareTo("UPDATE")))
+      else if (!(AT_Command.compareTo("UPDATE"))) 
       {
         Serial.println("AT+OK UPDATE");
       }
-      else if (!(AT_Command.compareTo("NETWORK_INFO")))
+      else if (!(AT_Command.compareTo("NETWORK_INFO"))) //네트워크 정보 출력
       {
         Serial.println("AT+OK NETWORK_INFO");
         NETWORK_INFO();
       }
-      else if (!(AT_Command.compareTo("SETAP_SSID")))
+      else if (!(AT_Command.compareTo("SETAP_SSID"))) //AP_SSID 변경
       {
         Serial.println("AT+OK SETAP_SSID");
         putString("ap_ssid", SerialData.substring(dex1+1, end - 1));
       }
-      else if (!(AT_Command.compareTo("SETAP_PASSWD")))
+      else if (!(AT_Command.compareTo("SETAP_PASSWD")))  //AP_PW 변경
       {
         Serial.println("AT+OK SETAP_PASSWD");
         putString("ap_passwd", SerialData.substring(dex1+1, end - 1));
       }
-      else if (!(AT_Command.compareTo("SET_SERIALNO")))
+      else if (!(AT_Command.compareTo("SET_SERIALNO"))) //Serial_NUMBER 변경
       {
         Serial.println("AT+OK SET_SERIALNO");
         putString("serial_no", SerialData.substring(dex1+1, end - 1));
       }
-      else if (!(AT_Command.compareTo("SET_AUTH_ID")))
+      else if (!(AT_Command.compareTo("SET_AUTH_ID"))) //AUTH_ID 변경
       {
         Serial.println("AT+OK SET_AUTH_ID");
         putString("AUTH_ID", SerialData.substring(dex1+1, end - 1));
       }
-      else if (!(AT_Command.compareTo("SET_AUTH_PASSWD")))
+      else if (!(AT_Command.compareTo("SET_AUTH_PASSWD"))) //AUTH_PW 변경
       {
         Serial.println("AT+OK SET_AUTH_PASSWD");
         putString("AUTH_PASSWD", SerialData.substring(dex1+1, end - 1));
       }
-      else if (!(AT_Command.compareTo("FORMAT_NVS")))
+      else if (!(AT_Command.compareTo("FORMAT_NVS"))) //NVS 메모리 포멧
       {
         Serial.println("AT+OK FORMAT_NVS");
         nvs_flash_erase();
         nvs_flash_init();
         ESP.restart();
       }
-      else if (!(AT_Command.compareTo("SHOWMETHEMONEY")))
+      else if (!(AT_Command.compareTo("SHOWMETHEMONEY"))) //남은 Heap 출력
       {
         Serial.println("AT+OK SHOWMETHEMONEY");
         Serial.print(ESP.getFreeHeap());
@@ -470,13 +476,13 @@ void loop()
       {
         Serial.println("AT+OK WHATTIMEISIT");
       }
-      else if (!(AT_Command.compareTo("REBOOT")))
+      else if (!(AT_Command.compareTo("REBOOT"))) //재부팅
       {
         Serial.println("AT+OK REBOOT");
         delay(500);
         ESP.restart();
       }
-      else
+      else //AT 명령어가 일치하지 않을 시
       {
         Serial.println("ERROR: Unknown command");
       }
